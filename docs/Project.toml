@@ -1,6 +1,9 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+HuggingFaceTokenizers = "a6888d44-1185-43bb-bd0f-7806f9976d18"
 Jjama3 = "1285d783-1a6d-4703-8f05-8ac83ef55592"
+LogitSamplers = "1b30fcfc-0ee9-4be2-9cfe-b2289b43e041"
+LowRankLayers = "b66182ab-a85c-43b0-99bd-d85cc47c5e50"
 
 [sources]
 HuggingFaceTokenizers = {rev = "main", url = "https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"}

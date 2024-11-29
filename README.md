@@ -12,7 +12,7 @@
 
 
 We've split this into a few (unregistered) packages, so you'll need to add them all, and you need JSON3 for loading the configs:
-```julia
+```
 ] add JSON3
 ] add https://github.com/MurrellGroup/HuggingFaceTokenizers.jl
 ] add https://github.com/MurrellGroup/LowRankLayers.jl
