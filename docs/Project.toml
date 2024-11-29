@@ -1,3 +1,8 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 Jjama3 = "1285d783-1a6d-4703-8f05-8ac83ef55592"
+
+[sources]
+HuggingFaceTokenizers = {rev = "main", url = "https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"}
+LogitSamplers = {rev = "main", url = "https://github.com/MurrellGroup/LogitSamplers.jl"}
+LowRankLayers = {rev = "main", url = "https://github.com/MurrellGroup/LowRankLayers.jl"}
