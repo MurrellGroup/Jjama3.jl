@@ -24,7 +24,6 @@ jobs:
       matrix:
         version:
           - '1.10'
-          - '1.9'
           - 'pre'
         os:
           - ubuntu-latest
@@ -42,12 +41,14 @@ jobs:
           julia -e '
             using Pkg
             Pkg.activate(temp=true)
-            Pkg.add("JSON3")
             Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"))
             Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LowRankLayers.jl"))
             Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LogitSamplers.jl"))
             Pkg.activate(".")
-            Pkg.develop(["HuggingFaceTokenizers", "LowRankLayers", "LogitSamplers"])
+            Pkg.add("JSON3")
+            Pkg.develop("HuggingFaceTokenizers")
+            Pkg.develop("LowRankLayers")
+            Pkg.develop("LogitSamplers")
           '
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
@@ -74,7 +75,15 @@ jobs:
         shell: julia --project=docs --color=yes {0}
         run: |
           using Pkg
+          Pkg.activate(temp=true)
+          Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"))
+          Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LowRankLayers.jl"))
+          Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LogitSamplers.jl"))
+          Pkg.activate(".")
           Pkg.add("JSON3")
+          Pkg.develop("HuggingFaceTokenizers")
+          Pkg.develop("LowRankLayers")
+          Pkg.develop("LogitSamplers")
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
       - uses: julia-actions/julia-buildpkg@v1
