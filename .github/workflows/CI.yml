@@ -39,12 +39,15 @@ jobs:
       - uses: julia-actions/cache@v2
       - name: Install dependencies
         run: |
-          julia --project -e '
+          julia -e '
             using Pkg
+            Pkg.activate(temp=true)
             Pkg.add("JSON3")
             Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"))
             Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LowRankLayers.jl"))
             Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LogitSamplers.jl"))
+            Pkg.activate(".")
+            Pkg.develop(["HuggingFaceTokenizers", "LowRankLayers", "LogitSamplers"])
           '
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
@@ -72,9 +75,6 @@ jobs:
         run: |
           using Pkg
           Pkg.add("JSON3")
-          Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"))
-          Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LowRankLayers.jl"))
-          Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LogitSamplers.jl"))
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
       - uses: julia-actions/julia-buildpkg@v1
