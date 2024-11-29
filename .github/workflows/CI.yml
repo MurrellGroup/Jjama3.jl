@@ -45,10 +45,10 @@ jobs:
             Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LowRankLayers.jl"))
             Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LogitSamplers.jl"))
             Pkg.activate(".")
-            Pkg.add("JSON3")
             Pkg.develop("HuggingFaceTokenizers")
             Pkg.develop("LowRankLayers")
             Pkg.develop("LogitSamplers")
+            Pkg.add("JSON3")
           '
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
@@ -80,10 +80,10 @@ jobs:
           Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LowRankLayers.jl"))
           Pkg.develop(PackageSpec(url="https://github.com/MurrellGroup/LogitSamplers.jl"))
           Pkg.activate(".")
-          Pkg.add("JSON3")
           Pkg.develop("HuggingFaceTokenizers")
           Pkg.develop("LowRankLayers")
           Pkg.develop("LogitSamplers")
+            Pkg.add("JSON3")
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
       - uses: julia-actions/julia-buildpkg@v1
