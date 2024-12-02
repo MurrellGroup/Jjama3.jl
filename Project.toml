@@ -18,10 +18,17 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 [weakdeps]
 Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 
-[sources]
-HuggingFaceTokenizers = {rev = "main", url = "https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"}
-LogitSamplers = {rev = "main", url = "https://github.com/MurrellGroup/LogitSamplers.jl"}
-LowRankLayers = {rev = "main", url = "https://github.com/MurrellGroup/LowRankLayers.jl"}
+[sources.HuggingFaceTokenizers]
+rev = "main"
+url = "https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"
+
+[sources.LogitSamplers]
+rev = "main"
+url = "https://github.com/MurrellGroup/LogitSamplers.jl"
+
+[sources.LowRankLayers]
+rev = "main"
+url = "https://github.com/MurrellGroup/LowRankLayers.jl"
 
 [extensions]
 MetalExt = "Metal"
@@ -30,6 +37,7 @@ MetalExt = "Metal"
 BytePairEncoding = "0.5"
 Distributions = "0.25"
 Flux = "0.14"
+LogitSamplers = "0.1"
 LowRankLayers = "1.0.0"
 Metal = "1"
 NNlib = "0.9"
