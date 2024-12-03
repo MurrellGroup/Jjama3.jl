@@ -1,44 +1,51 @@
 module Jjama3
 
-using Flux, SafeTensors, Distributions, LinearAlgebra, StatsBase, NNlib
-using LogitSamplers, LowRankLayers
-import HuggingFaceTokenizers
+using Flux
+using SafeTensors
+using Distributions
+using LinearAlgebra
+using StatsBase
+using NNlib
+using LogitSamplers
+using LowRankLayers
+using ReactantCore
 
+using HuggingFaceTokenizers: HuggingFaceTokenizers, Tokenizer
 
 const tokenizer_from_repo = HuggingFaceTokenizers.from_pretrained
 const tokenizer_from_file = HuggingFaceTokenizers.from_file
-const Tokenizer = HuggingFaceTokenizers.Tokenizer
-
-const top_pk_sampler = LogitSamplers.top_pk_sampler
-const argmax_sampler = LogitSamplers.argmax_sampler
-const min_p_sampler = LogitSamplers.min_p_sampler
-const top_nσ_sampler = LogitSamplers.top_nσ_sampler
-
-
 
 include("layers.jl")
-include("model.jl")
-include("utils.jl")
-include("sampling.jl")
+export KVCache
+export FeedForward
+export RMSNorm
+export TransformerBlock
+export Transformer
+export RoPE
 
-export  load_llama321B_from_safetensors, 
-        load_llama3_from_safetensors, 
-        generate, 
-        forward_loss, 
-        forward_inference, 
-        top_pk_sampler, 
-        argmax_sampler,
-        top_nσ_sampler,
-        min_p_sampler,
-        tokenizer_from_repo,
-        tokenizer_from_file,
-        encode,
-        decode,
-        Tokenizer,
-        llama3_instruct_prompt,
-        llama3_assistant_prompt,
-        smollm2_instruct_prompt,
-        smollm2_assistant_prompt,
-        structured_choice
+include("model.jl")
+export forward_loss
+export forward_inference
+
+include("sampling.jl")
+export top_pk_sampler
+export argmax_sampler
+export top_nσ_sampler
+export min_p_sampler
+export generate
+export tokenizer_from_repo
+export tokenizer_from_file
+export Tokenizer
+
+include("utils.jl")
+export encode
+export decode
+export load_llama321B_from_safetensors
+export load_llama3_from_safetensors
+export llama3_instruct_prompt
+export llama3_assistant_prompt
+export smollm2_instruct_prompt
+export smollm2_assistant_prompt
+export structured_choice
 
 end

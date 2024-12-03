@@ -1,7 +1,9 @@
 module MetalExt
 
-#Note: Metal speeds things up a little for forward_inference and forward_loss calls, but is VERY slow for sampling.
-#It seems that each single Metal call has some constant overhead that kills it.
+# See https://github.com/FluxML/NNlib.jl/pull/614
+
+# Note: Metal speeds things up a little for forward inference and forward_loss calls, but is VERY slow for sampling.
+# It seems that each single Metal call has some constant overhead that kills it.
 
 using Metal, NNlib
 

@@ -3,44 +3,40 @@
 # Vibes feel like a shift-by-1 in the RoPE, or something similar. Need to investigate when I find time.
 """
     generate(model, initial_tokens; max_new_tokens=100, sampler=top_pk_sampler(p=0.5f0, k=5), tokenizer_for_printing=tkn, end_token=128010)
-    
+
 Takes an initial sequence of tokens, and generates new tokens one at a time until the end token is sampled. Uses a KV cache. No batch dim for now.
 Runs on CPU by default. If the model is on the GPU (assuming Flux.jl, eg. `model = gpu(model)`), then pass `device = gpu` to `generate` to run on the GPU.
 
-    tkn = llama3_tokenizer()
-    generate(model, initial_tokens; max_new_tokens=100, sampler=top_pk_sampler(p=0.5f0, k=5), tokenizer_for_printing=tkn, end_token=128010)
+```julia
+tkn = llama3_tokenizer()
+generate(model, initial_tokens; max_new_tokens=100, sampler=top_pk_sampler(p=0.5f0, k=5), tokenizer_for_printing=tkn, end_token=128010)
+```
 """
 function generate(model::Transformer{T}, 
-                 initial_tokens::AbstractArray{IntT};
+                 initial_tokens::AbstractArray{<:Integer};
                  max_new_tokens=100,
                  sampler::Function=argmax_sampler,
                  tokenizer_for_printing = nothing,
                  end_token = 128010,
-                 device = identity) where {T, IntT}
-    
-    # Initialize sequence with a new copy of the tokens
+                 device = identity) where T
+
     current_len = length(initial_tokens)
-    tokens = Vector{IntT}(undef, current_len + max_new_tokens)
-    tokens[1:current_len] = initial_tokens
-    # Set up KV caches for all attention layers    
+    tokens = vcat(initial_tokens, similar(initial_tokens, max_new_tokens))
+
     for layer in model.layers
         layer.attention.cache = KVCache(
-            T,  # eltype
-            1,  # batch_size
+            T, 1,  # eltype, batch_size
             current_len + max_new_tokens,  # max possible sequence length
             layer.attention.n_kv_heads,
             layer.attention.head_dim,
             device = device
         )
     end
-    # Process the initial sequence
-    if current_len > 0
-        input_tokens = device(reshape(initial_tokens, :, 1))  # (seq_len, batch=1)
-        logits = forward_inference(model, input_tokens, 0)
-        start_pos = current_len
-    else
-        start_pos = 0
-    end
+
+    input_tokens = device(reshape(initial_tokens, :, 1))  # (seq_len, batch=1)
+    logits = model(input_tokens, 0)
+    start_pos = current_len
+
     # Generate new tokens one at a time
     for _ in 1:max_new_tokens
         # If sequence is empty or we want to process just the last token
@@ -50,17 +46,13 @@ function generate(model::Transformer{T},
             input_tokens = device(reshape([tokens[current_len]], :, 1))  # Just the last token
         end
         # Get logits for next token
-        logits = forward_inference(model, input_tokens, start_pos)
+        logits = model(input_tokens, start_pos)
         # Sample next token (logits are size vocab × 1 × 1)
         next_token = sampler(logits[:, end, 1])
         current_len += 1
         tokens[current_len] = next_token
-        if !isnothing(tokenizer_for_printing)
-            print(decode(tokenizer_for_printing, [next_token]))
-        end
-        if next_token == end_token
-            break
-        end
+        !isnothing(tokenizer_for_printing) && print(decode(tokenizer_for_printing, [next_token]))
+        next_token == end_token && break
         start_pos += 1
     end
     # Clear KV caches

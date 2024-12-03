@@ -45,7 +45,7 @@ generate(model, prompt,
 - RoPE scaling (for exceeding the model's max training-time context length) is implemented, but likely incorrect with KV cache. Be careful if you're using with really long sequences.
 - Imported models are trainable (with Flux), including with low-rank (ie. LoRA) finetuning.
 - Sampling, training, etc compatible with CUDA, where everything is much faster.
-- Metal acceleration for forward_inference, forward_loss, and sampling. Gradients (with Zygote) fail. Sampling works, but is slower with Metal than with CPU.
+- Metal acceleration for forward inference, forward loss, and sampling. Gradients (with Zygote) fail. Sampling works, but is slower with Metal than with CPU.
 
 
 ## Samplers

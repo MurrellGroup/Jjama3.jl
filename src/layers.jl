@@ -1,6 +1,8 @@
+const AnyDense = Union{Dense, LoRADense}
+
 struct KVCache{T}
-    cache_k::AbstractArray{T, 4}  # (head_dim, seq_len, n_kv_heads, batch)
-    cache_v::AbstractArray{T, 4} 
+    cache_k::AbstractArray{T,4}  # (head_dim, seq_len, n_kv_heads, batch)
+    cache_v::AbstractArray{T,4} 
 end
 
 function KVCache(T, batch_size::Int, seq_length::Int, n_kv_heads::Int, head_dim::Int; device = identity)
@@ -9,10 +11,11 @@ function KVCache(T, batch_size::Int, seq_length::Int, n_kv_heads::Int, head_dim:
     KVCache(cache_k, cache_v)
 end
 
-struct FeedForward
-    w1::Union{Dense, LoRADense}
-    w2::Union{Dense, LoRADense}
-    w3::Union{Dense, LoRADense}
+
+struct FeedForward{W<:AnyDense}
+    w1::W
+    w2::W
+    w3::W
 end
 
 function FeedForward(dim::Int, ff_hidden_dim::Int)
@@ -23,38 +26,92 @@ function FeedForward(dim::Int, ff_hidden_dim::Int)
     )
 end
 
-function (ff::FeedForward)(x)
-    return ff.w2(Flux.swish(ff.w1(x)) .* ff.w3(x))
-end
+(ff::FeedForward)(x) = ff.w2(Flux.swish(ff.w1(x)) .* ff.w3(x))
 
 Flux.@layer :expand FeedForward
 
-struct RMSNorm{T}
-    weight::AbstractVector{T}
+
+struct RMSNorm{T,W<:AbstractVector{T}}
+    weight::W
     eps::T
 end
 
-function RMSNorm(dim::Int; eps::T=1f-5) where T
-    RMSNorm{T}(ones(T, dim), eps)
-end
+RMSNorm(dim::Int; eps::T=1f-5) where {T} = RMSNorm(ones(T, dim), eps)
 
 function (norm::RMSNorm)(x)
-    rms = sqrt.(sum(abs2.(x), dims=1) ./ size(x,1) .+ norm.eps)
+    rms = sqrt.(sum(abs2, x, dims=1) ./ size(x,1) .+ norm.eps)
     return x .* (norm.weight ./ rms)
 end
 
 Flux.@layer RMSNorm
 
-mutable struct Attention
-    wq::Union{Dense, LoRADense}
-    wk::Union{Dense, LoRADense}
-    wv::Union{Dense, LoRADense}
-    wo::Union{Dense, LoRADense}
+
+struct RoPE{A<:AbstractArray}
+    cos::A
+    sin::A
+end
+
+Base.getindex(rope::RoPE, i) = RoPE(selectdim(rope.cos, 2, i), selectdim(rope.sin, 2, i))
+
+function apply_scaling!(freqs::AbstractVector; scale_factor=8)
+    #Hard-coded - I should move these to the main model struct and grab them from the config.
+    low_freq_factor = 1
+    high_freq_factor = 4
+    old_context_len = 8192
+    ###
+    low_freq_wavelen = old_context_len / low_freq_factor
+    high_freq_wavelen = old_context_len / high_freq_factor
+    for (i, freq) in enumerate(freqs)
+        wavelen = 2π / freq
+        if wavelen > low_freq_wavelen
+            freqs[i] = freq / scale_factor
+        elseif wavelen > high_freq_wavelen
+            @assert low_freq_wavelen != high_freq_wavelen
+            smooth = (old_context_len / wavelen - low_freq_factor) / 
+                    (high_freq_factor - low_freq_factor)
+            freqs[i] = (1 - smooth) * freq / scale_factor + smooth * freq
+        end
+    end
+    return freqs
+end
+
+function RoPE(
+    dim::Int, end_pos::Int; 
+    theta::T=10000f0, use_scaled=true, scale_factor=8,
+) where T
+    freqs = 1f0 ./ (theta .^ (T.(0:2:dim-1)[1:dim÷2] ./ dim))
+    use_scaled && apply_scaling!(freqs; scale_factor)
+    freqs_complex = cis.(T.(0:end_pos-1) * freqs')
+    cos = permutedims(real(freqs_complex), (2, 1))  # (head_dim/2, seq_len)
+    sin = permutedims(imag(freqs_complex), (2, 1))
+    cos = reshape(cos, (dim÷2, end_pos, 1, 1))
+    sin = reshape(sin, (dim÷2, end_pos, 1, 1))
+    return RoPE(cos, sin)
+end
+
+#Note about Huggingface weights and rotary embeddings: https://discuss.huggingface.co/t/is-llama-rotary-embedding-implementation-correct/44509
+#Use this one if you're using the Hugging Face weights.
+function (rope::RoPE)(x)
+    head_dim = size(x, 1)
+    x1 = @view x[1:head_dim÷2, :, :, :]
+    x2 = @view x[head_dim÷2+1:end, :, :, :]
+    return vcat(  
+        x1 .* rope.cos .- x2 .* rope.sin,
+        x2 .* rope.cos .+ x1 .* rope.sin
+    )
+end
+
+
+mutable struct Attention{Q,K,V,O}
+    wq::Q
+    wk::K
+    wv::V
+    wo::O
     n_heads::Int
     n_kv_heads::Int
     head_dim::Int
     n_rep::Int
-    cache::Union{Nothing, KVCache}
+    #cache::Union{Nothing, KVCache}
 end
 
 function Attention(dim::Int, n_heads::Int, n_kv_heads=n_heads; qkv_bias=false)
@@ -69,11 +126,11 @@ function Attention(dim::Int, n_heads::Int, n_kv_heads=n_heads; qkv_bias=false)
         n_kv_heads,
         head_dim,
         n_rep,
-        nothing
+        #nothing
     )
 end
 
-function (attn::Attention)(x::AbstractArray{T}, start_pos::Int, freqs_cis, mask=nothing) where T
+function (attn::Attention)(x::AbstractArray{T}, start_pos::Int, rope::RoPE, mask=false) where T
     dim, seqlen, batch = size(x)
 
     xq = attn.wq(x)
@@ -84,48 +141,25 @@ function (attn::Attention)(x::AbstractArray{T}, start_pos::Int, freqs_cis, mask=
     xk = reshape(xk, (attn.head_dim, attn.n_kv_heads, seqlen, batch))
     xv = reshape(xv, (attn.head_dim, attn.n_kv_heads, seqlen, batch))
 
-    #Lazy permute dims. Need to test CUDA. Note: test fails.
-    #xq = PermutedDimsArray(xq, (1,3,2,4))
-    #xk = PermutedDimsArray(xk, (1,3,2,4))
-    #xv = PermutedDimsArray(xv, (1,3,2,4))
-
     xq = permutedims(xq, (1,3,2,4))
     xk = permutedims(xk, (1,3,2,4))
     xv = permutedims(xv, (1,3,2,4))
 
-    xq_rope = apply_rotary_emb(xq, freqs_cis)
-    xk_rope = apply_rotary_emb(xk, freqs_cis)
+    xq_rope = rope(xq)
+    xk_rope = rope(xk)
 
-    if !isnothing(attn.cache)
-        xk_rope, xv = update_kv_cache(attn.cache, start_pos, xk_rope, xv)
-    end
-
+    #@trace if !isnothing(attn.cache)
+    #    xk_rope, xv = update_kv_cache!(attn.cache, start_pos, xk_rope, xv)
+    #end
     xk_rope = repeat_kv(xk_rope, attn.n_rep)
     xv      = repeat_kv(xv, attn.n_rep)
     
     xq_for_attn = reshape(xq_rope, attn.head_dim, :,  attn.n_heads * batch)
     xk_for_attn = reshape(xk_rope, attn.head_dim, :, attn.n_heads * batch)
     xv_for_attn = reshape(xv, attn.head_dim, :, attn.n_heads * batch)
-    
-    #=
-    scores = batched_mul(
-        permutedims(xq_for_attn, (2,1,3)),  # (seqlen, head_dim, batch*heads)
-        #batched_transpose(xq_for_attn),  # (seqlen, head_dim, batch*heads)
-        xk_for_attn                          # (head_dim, seqlen, batch*heads)
-    ) ./ sqrt(T(attn.head_dim))
-    if !isnothing(mask)
-        scores = scores .+ mask
-    end
-    sm_scores = softmax(scores; dims=2) 
-    output = batched_mul(sm_scores, permutedims(xv_for_attn, (2,1,3)))
-    e_output = reshape(output, (seqlen, attn.head_dim, attn.n_heads, batch))
-    p_output = permutedims(e_output, (2,3,1,4))  # (n_heads, head_dim, seqlen, batch)
-    =#
-    
-    scores = batched_mul(batched_transpose(xk_for_attn), xq_for_attn) ./ sqrt(T(attn.head_dim))
-    if !isnothing(mask)
-        scores = scores .+ mask
-    end
+
+    scores = batched_mul(batched_transpose(xk_for_attn), xq_for_attn) / sqrt(T(attn.head_dim))
+    scores .+= mask
     sm_scores = softmax(scores; dims=1)
     output = batched_mul(xv_for_attn, sm_scores)
     e_output = reshape(output, (attn.head_dim, seqlen, attn.n_heads, batch))
@@ -136,13 +170,14 @@ function (attn::Attention)(x::AbstractArray{T}, start_pos::Int, freqs_cis, mask=
     return proj
 end
 
-Flux.@layer :expand Attention trainable=(wq, wv)
+Flux.@layer :expand Attention trainable=(wq,wv)
 
-struct TransformerBlock
-    attention::Attention
-    feed_forward::FeedForward
-    attention_norm::RMSNorm
-    ffn_norm::RMSNorm
+
+struct TransformerBlock{A<:Attention,F<:FeedForward,AN<:RMSNorm,FN<:RMSNorm}
+    attention::A
+    feed_forward::F
+    attention_norm::AN
+    ffn_norm::FN
 end
 
 function TransformerBlock(dim::Int, n_heads::Int, n_kv_heads::Int=n_heads, ff_hidden_dim = 4 * dim;
@@ -155,42 +190,38 @@ function TransformerBlock(dim::Int, n_heads::Int, n_kv_heads::Int=n_heads, ff_hi
     )
 end
 
-function (block::TransformerBlock)(x, start_pos, freqs_cis, mask=nothing)
-    h = x + block.attention(block.attention_norm(x), start_pos, freqs_cis, mask)
+function (block::TransformerBlock)(x, start_pos, rope, mask=nothing)
+    h = x + block.attention(block.attention_norm(x), start_pos, rope, mask)
     out = h + block.feed_forward(block.ffn_norm(h))
     return out
 end
 
-Flux.@layer TransformerBlock trainable=(attention, )
+Flux.@layer TransformerBlock trainable=(attention,)
 
-struct Transformer{T}
-    tok_embeddings::Flux.Embedding
-    layers::AbstractVector{TransformerBlock}
-    norm::RMSNorm{T}
-    output::Dense
-    freqs_cis::Tuple{AbstractArray{T, 4}, AbstractArray{T, 4}}
+
+struct Transformer{E<:Flux.Embedding,B<:AbstractVector{<:TransformerBlock},N<:RMSNorm,O<:Dense,R<:RoPE}
+    tok_embeddings::E
+    layers::B
+    norm::N
+    output::O
+    rope::R
 end
 
-function Transformer(vocab_size::Int, dim::Int, n_layers::Int, n_heads::Int, 
-                    n_kv_heads::Int, max_seq_len::Int, ff_hidden_dim::Int;
-                    norm_eps::T=1f-5,
-                    qkv_bias=false,
-                    rope_theta::T=500000f0,
-                    use_scaled_rope=false,
-                    scale_factor=8) where T
-    
+function Transformer(
+    vocab_size::Int, dim::Int, n_layers::Int, n_heads::Int, 
+    n_kv_heads::Int, max_seq_len::Int, ff_hidden_dim::Int;
+    norm_eps::T=1f-5,
+    qkv_bias=false,
+    rope_theta::T=500000f0,
+    use_scaled_rope=false,
+    scale_factor=8,
+) where T
     tok_embeddings = Flux.Embedding(vocab_size => dim)
     layers = [TransformerBlock(dim, n_heads, n_kv_heads, ff_hidden_dim; norm_eps=norm_eps, qkv_bias=qkv_bias) for _ in 1:n_layers]
     norm = RMSNorm(dim, eps=norm_eps)
     output = Dense(dim => vocab_size, bias=false)
-    freqs_cis = precompute_freqs_cis(
-        dim ÷ n_heads,
-        max_seq_len * 2;
-        theta=rope_theta,
-        use_scaled=use_scaled_rope,
-        scale_factor=scale_factor
-    )
-    Transformer(tok_embeddings, layers, norm, output, freqs_cis)
+    rope = RoPE(dim ÷ n_heads, max_seq_len * 2; theta=rope_theta, use_scaled=use_scaled_rope, scale_factor=scale_factor)
+    Transformer(tok_embeddings, layers, norm, output, rope)
 end
 
-Flux.@layer :expand Transformer trainable=(layers, )
+Flux.@layer :expand Transformer trainable=(layers,)
