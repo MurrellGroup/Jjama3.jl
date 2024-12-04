@@ -4,7 +4,7 @@ authors = ["murrellb <murrellb@gmail.com> and contributors"]
 version = "1.1.0-DEV"
 
 [deps]
-BytePairEncoding = "a4280ba5-8788-555a-8ca8-4a8c3d966a71"
+Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
 HuggingFaceTokenizers = "a6888d44-1185-43bb-bd0f-7806f9976d18"
@@ -27,7 +27,7 @@ LowRankLayers = {rev = "main", url = "https://github.com/MurrellGroup/LowRankLay
 MetalExt = "Metal"
 
 [compat]
-BytePairEncoding = "0.5"
+Accessors = "0.1.38"
 Distributions = "0.25"
 Flux = "0.14"
 LogitSamplers = "0.1"

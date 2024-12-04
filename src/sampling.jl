@@ -12,24 +12,24 @@ tkn = llama3_tokenizer()
 generate(model, initial_tokens; max_new_tokens=100, sampler=top_pk_sampler(p=0.5f0, k=5), tokenizer_for_printing=tkn, end_token=128010)
 ```
 """
-function generate(model::Transformer{T}, 
-                 initial_tokens::AbstractArray{<:Integer};
-                 max_new_tokens=100,
-                 sampler::Function=argmax_sampler,
-                 tokenizer_for_printing = nothing,
-                 end_token = 128010,
-                 device = identity) where T
-
+function generate(
+    model::Transformer{T}, 
+    initial_tokens::AbstractArray{<:Integer};
+    max_new_tokens=100,
+    sampler::Function=argmax_sampler,
+    tokenizer_for_printing = nothing,
+    end_token = 128010,
+    device = identity
+) where T
     current_len = length(initial_tokens)
     tokens = vcat(initial_tokens, similar(initial_tokens, max_new_tokens))
 
     for layer in model.layers
-        layer.attention.cache = KVCache(
-            T, 1,  # eltype, batch_size
-            current_len + max_new_tokens,  # max possible sequence length
-            layer.attention.n_kv_heads,
-            layer.attention.head_dim,
-            device = device
+        reset_kv_cache!(layer.attention.cache,
+            batch_size = 1,
+            seq_length = current_len + max_new_tokens,
+            n_kv_heads = layer.attention.n_kv_heads,
+            head_dim = layer.attention.head_dim
         )
     end
 
@@ -57,7 +57,7 @@ function generate(model::Transformer{T},
     end
     # Clear KV caches
     for layer in model.layers
-        layer.attention.cache = nothing
+        clear_kv_cache!(layer.attention.cache)
     end
     return tokens[1:current_len]
 end

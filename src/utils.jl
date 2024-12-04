@@ -1,3 +1,5 @@
+using Accessors
+
 encode(tkn::Tokenizer, str; kwargs...) = HuggingFaceTokenizers.encode(tkn, str; kwargs...).ids .+ 1
 decode(tkn::Tokenizer, ids; kwargs...) = HuggingFaceTokenizers.decode(tkn, ids .- 1; kwargs...)
 
@@ -41,7 +43,10 @@ so if you're loading weights from a different source, you might get very poor mo
     model_weight_paths = ["Llama3_2_1B_instruct/model.safetensors"] #Can be an array of paths if the model is split across multiple files
     model = load_llama3_from_safetensors(model_weight_paths, config)
 """
-function load_llama3_from_safetensors(paths::Vector{String}, config; T = Float32, add_lora_to = Symbol[], lora_dim = 0)
+function load_llama3_from_safetensors(
+    paths::Vector{String}, config;
+    T = Float32, add_lora_to = Symbol[], lora_dim = 0,
+)
     config = Dict(config) #Just in case the user passed eg. a JSON3.Object
     #@assert config[:rope_scaling][:rope_type] == "llama3"
     #@assert config[:rope_scaling][:low_freq_factor] == 1
@@ -144,40 +149,39 @@ function load_llama3_from_safetensors(paths::Vector{String}, config; T = Float32
     end
 
     if !isempty(add_lora_to)
-        #Then load in the current layers:
         if :Q in add_lora_to
             for layer in model.layers
-                layer.attention.wq = LoRADense(layer.attention.wq, lora_dim)
+                @reset layer.attention.wq = LoRADense(layer.attention.wq, lora_dim)
             end
         end
         if :K in add_lora_to
             for layer in model.layers
-                layer.attention.wk = LoRADense(layer.attention.wk, lora_dim)
+                @reset layer.attention.wk = LoRADense(layer.attention.wk, lora_dim)
             end
         end
         if :V in add_lora_to
             for layer in model.layers
-                layer.attention.wv = LoRADense(layer.attention.wv, lora_dim)
+                @reset layer.attention.wv = LoRADense(layer.attention.wv, lora_dim)
             end
         end
         if :O in add_lora_to
             for layer in model.layers
-                layer.attention.wo = LoRADense(layer.attention.wo, lora_dim)
+                @reset layer.attention.wo = LoRADense(layer.attention.wo, lora_dim)
             end
         end
         if :w1 in add_lora_to
             for layer in model.layers
-                layer.feed_forward.w1 = LoRADense(layer.feed_forward.w1, lora_dim)
+                @reset layer.feed_forward.w1 = LoRADense(layer.feed_forward.w1, lora_dim)
             end
         end
         if :w2 in add_lora_to
             for layer in model.layers
-                layer.feed_forward.w2 = LoRADense(layer.feed_forward.w2, lora_dim)
+                @reset layer.feed_forward.w2 = LoRADense(layer.feed_forward.w2, lora_dim)
             end
         end
         if :w3 in add_lora_to
             for layer in model.layers
-                layer.feed_forward.w3 = LoRADense(layer.feed_forward.w3, lora_dim)
+                @reset layer.feed_forward.w3 = LoRADense(layer.feed_forward.w3, lora_dim)
             end
         end
     end

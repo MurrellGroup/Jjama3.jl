@@ -1,14 +1,13 @@
 #Note about output layer being tied to embedding: https://github.com/meta-llama/llama-models/issues/172
 
-function update_kv_cache!(cache::KVCache, start_pos::Int, xk::AbstractArray, xv::AbstractArray)
-    seqlen = size(xk, 2)
-    cache.cache_k[:, start_pos+1:start_pos+seqlen, :, :] .= xk
-    cache.cache_v[:, start_pos+1:start_pos+seqlen, :, :] .= xv
-    return cache.cache_k[:, 1:start_pos+seqlen, :, :],
-           cache.cache_v[:, 1:start_pos+seqlen, :, :]
+function create_mask(h::AbstractArray{T}) where T<:AbstractFloat
+    dim, seqlen, batch = size(h)
+    mask = similar(h, seqlen, seqlen)
+    mask .= T(-Inf)
+    #mask = triu(mask, 1)
+    mask = tril(mask, -1) #This is swapped because we're using the slightly more efficient dim setup
+    return mask
 end
-
-repeat_kv(x::AbstractArray, n_rep::Int) = isone(n_rep) ? x : repeat(x, 1, n_rep, 1, 1)
 
 function (model::Transformer)(tokens::AbstractArray{Int}, start_pos::Int)
     h = model.tok_embeddings(tokens) # Embedding: (dim, seq_len, batch)
@@ -20,16 +19,6 @@ function (model::Transformer)(tokens::AbstractArray{Int}, start_pos::Int)
     h = model.norm(h)
     output = model.output(h)
     return output
-end
-
-function create_mask(h::AbstractArray)
-    embeddim, seqlen, batch = size(h)
-    mask = similar(h, seqlen, seqlen)
-    T = eltype(h)
-    mask .= T(-Inf)
-    #mask = triu(mask, 1)
-    mask = tril(mask, -1) #This is swapped because we're using the slightly more efficient dim setup
-    return mask
 end
 
 function forward_loss(model::Transformer, inputs::AbstractArray, 
