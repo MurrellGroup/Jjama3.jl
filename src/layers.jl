@@ -7,6 +7,8 @@ struct FeedForward{W<:AnyDense}
     w3::W
 end
 
+Flux.@layer FeedForward
+
 function FeedForward(dim::Int, ff_hidden_dim::Int)
     FeedForward(
         Dense(dim => ff_hidden_dim, bias=false),
@@ -17,22 +19,20 @@ end
 
 (ff::FeedForward)(x) = ff.w2(Flux.swish(ff.w1(x)) .* ff.w3(x))
 
-Flux.@layer FeedForward
 
-
-struct RMSNorm{T,W<:AbstractVector{T}}
+struct RMSNorm{T<:AbstractFloat,W<:AbstractVector{T}}
     weight::W
     eps::T
 end
 
+Flux.@layer RMSNorm
+
 RMSNorm(dim::Int; eps::T=1f-5) where T = RMSNorm(ones(T, dim), eps)
 
 function (norm::RMSNorm)(x)
-    rms = sqrt.(sum(abs2, x, dims=1) ./ size(x,1) .+ norm.eps)
+    rms = sqrt.(sum(abs2, x, dims=1) / size(x, 1) .+ norm.eps)
     return x .* (norm.weight ./ rms)
 end
-
-Flux.@layer RMSNorm
 
 
 struct RoPE{A<:AbstractArray}
@@ -45,7 +45,7 @@ Flux.@layer RoPE
 Base.getindex(rope::RoPE, i) = RoPE(rope.cos[:,i,:,:], rope.sin[:,i,:,:])
 
 function apply_scaling!(freqs::AbstractVector; scale_factor=8)
-    #Hard-coded - I should move these to the main model struct and grab them from the config.
+    #Hard-coded - should move these to the main model struct and grab them from the config.
     low_freq_factor = 1
     high_freq_factor = 4
     old_context_len = 8192
@@ -80,8 +80,9 @@ function RoPE(
     return RoPE(cos, sin)
 end
 
-#Note about Huggingface weights and rotary embeddings: https://discuss.huggingface.co/t/is-llama-rotary-embedding-implementation-correct/44509
-#Use this one if you're using the Hugging Face weights.
+# Note about Huggingface weights and rotary embeddings:
+# https://discuss.huggingface.co/t/is-llama-rotary-embedding-implementation-correct/44509
+# Use this one if you're using the Hugging Face weights.
 function (rope::RoPE)(x)
     head_dim = size(x, 1)
     x1 = x[1:head_dim÷2, :, :, :]
@@ -93,36 +94,7 @@ function (rope::RoPE)(x)
 end
 
 
-mutable struct KVCache{T,A<:AbstractArray{T,4}}
-    cache_k::A
-    cache_v::A
-end
-
-Flux.@layer KVCache
-
-function KVCache(T; batch_size=0, seq_length=0, n_kv_heads=0, head_dim=0)
-    cache_k = zeros(T, head_dim, seq_length, n_kv_heads, batch_size)
-    cache_v = zeros(T, head_dim, seq_length, n_kv_heads, batch_size)
-    return KVCache(cache_k, cache_v)
-end
-
-function reset_kv_cache!(cache::KVCache; batch_size, seq_length, n_kv_heads, head_dim)
-    cache.cache_k = similar(cache.cache_k, head_dim, seq_length, n_kv_heads, batch_size) .= 0
-    cache.cache_v = similar(cache.cache_v, head_dim, seq_length, n_kv_heads, batch_size) .= 0
-end
-
-clear_kv_cache!(cache::KVCache) = reset_kv_cache!(cache, batch_size=0, seq_length=0, n_kv_heads=0, head_dim=0)
-
-function update_kv_cache!(cache::KVCache, start_pos::Int, xk::AbstractArray, xv::AbstractArray)
-    seqlen = size(xk, 2)
-    cache.cache_k[:, start_pos+1:start_pos+seqlen, :, :] .= xk
-    cache.cache_v[:, start_pos+1:start_pos+seqlen, :, :] .= xv
-    return cache.cache_k[:, 1:start_pos+seqlen, :, :],
-           cache.cache_v[:, 1:start_pos+seqlen, :, :]
-end
-
-
-struct Attention{Q,K,V,O,C<:KVCache}
+struct Attention{Q<:AnyDense,K<:AnyDense,V<:AnyDense,O<:AnyDense,C<:KVCache}
     wq::Q
     wk::K
     wv::V
@@ -147,13 +119,13 @@ function Attention(dim::Int, n_heads::Int, n_kv_heads=n_heads; qkv_bias=false)
         n_heads,
         n_kv_heads,
         head_dim,
-        KVCache(T) # starts off empty
+        KVCache(Float32; n_kv_heads, head_dim),
     )
 end
 
 repeat_kv(x::AbstractArray, n_rep::Int) = isone(n_rep) ? x : repeat(x, 1, n_rep, 1, 1)
 
-function (attn::Attention)(x::AbstractArray{T}, start_pos::Int, rope=nothing, mask=false) where T
+function (attn::Attention)(x::AbstractArray{T}, start_pos::Integer, rope=nothing, mask=false) where T
     _, seqlen, batch = size(x)
 
     xq = attn.wq(x)
@@ -172,16 +144,15 @@ function (attn::Attention)(x::AbstractArray{T}, start_pos::Int, rope=nothing, ma
         xq, xk = rope(xq), rope(xk)
     end
 
-    if attn.cache isa KVCache
-        xk, xv = update_kv_cache!(attn.cache, start_pos, xk, xv)
-    end
+    # Update if cache is configured with seq_length > 0
+    xk, xv = update!(attn.cache, start_pos, xk, xv)
 
     xk = repeat_kv(xk, attn.n_heads ÷ attn.n_kv_heads)
     xv = repeat_kv(xv, attn.n_heads ÷ attn.n_kv_heads)
 
-    xq_for_attn = reshape(xq, attn.head_dim, seqlen, :)
-    xk_for_attn = reshape(xk, attn.head_dim, seqlen, :)
-    xv_for_attn = reshape(xv, attn.head_dim, seqlen, :)
+    xq_for_attn = reshape(xq, attn.head_dim, :, attn.n_heads * batch)
+    xk_for_attn = reshape(xk, attn.head_dim, :, attn.n_heads * batch)
+    xv_for_attn = reshape(xv, attn.head_dim, :, attn.n_heads * batch)
 
     scores = batched_mul(batched_transpose(xk_for_attn), xq_for_attn) / sqrt(T(attn.head_dim))
     scores .+= mask
@@ -232,6 +203,8 @@ struct Transformer{E<:Flux.Embedding,B<:Tuple{Vararg{TransformerBlock}},N<:RMSNo
     rope::R
 end
 
+Flux.@layer Transformer trainable=(layers,)
+
 function Transformer(
     vocab_size::Int, dim::Int, n_layers::Int, n_heads::Int, 
     n_kv_heads::Int, max_seq_len::Int, ff_hidden_dim::Int;
@@ -248,5 +221,3 @@ function Transformer(
     rope = RoPE(dim ÷ n_heads, max_seq_len * 2; theta=rope_theta, use_scaled=use_scaled_rope, scale_factor=scale_factor)
     Transformer(tok_embeddings, layers, norm, output, rope)
 end
-
-Flux.@layer Transformer trainable=(layers,)

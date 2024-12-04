@@ -15,13 +15,16 @@ using HuggingFaceTokenizers: HuggingFaceTokenizers, Tokenizer
 const tokenizer_from_repo = HuggingFaceTokenizers.from_pretrained
 const tokenizer_from_file = HuggingFaceTokenizers.from_file
 
-include("layers.jl")
+include("cache.jl")
 export KVCache
+
+include("layers.jl")
 export FeedForward
 export RMSNorm
+export RoPE
+export Attention
 export TransformerBlock
 export Transformer
-export RoPE
 
 include("model.jl")
 export forward_loss

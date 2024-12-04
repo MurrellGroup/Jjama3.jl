@@ -9,7 +9,7 @@ function create_mask(h::AbstractArray{T}) where T<:AbstractFloat
     return mask
 end
 
-function (model::Transformer)(tokens::AbstractArray{Int}, start_pos::Int)
+function (model::Transformer)(tokens::AbstractArray{Int}, start_pos::Int=0)
     h = model.tok_embeddings(tokens) # Embedding: (dim, seq_len, batch)
     rope = model.rope[start_pos+1:start_pos+size(tokens, 1)]
     mask = create_mask(h)
@@ -26,12 +26,10 @@ function forward_loss(model::Transformer, inputs::AbstractArray,
                      mask = :auto)
     seqlen = size(inputs, 1) #(seq_len, batch)
     h = model.tok_embeddings(inputs) # (dim, seq_len, batch)
-    cos, sin = model.freqs_cis #@show size(cos) #(head_dim/2, max_RoPE, 1, 1)
-    freqs_cis = (cos[:,1:seqlen,:,:], sin[:,1:seqlen,:,:])
-    # Forward through layers (start_pos = 0 disables KV caching)
-    mask = mask == :auto ? create_mask(h) : mask
+    rope = model.rope[1:seqlen]
+    mask = create_mask(h)
     for layer in model.layers
-        h = layer(h, 0, freqs_cis, mask)
+        h = layer(h, 0, rope, mask)
     end
     h = model.norm(h)
     logits = model.output(h)

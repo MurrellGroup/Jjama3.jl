@@ -25,12 +25,7 @@ function generate(
     tokens = vcat(initial_tokens, similar(initial_tokens, max_new_tokens))
 
     for layer in model.layers
-        reset_kv_cache!(layer.attention.cache,
-            batch_size = 1,
-            seq_length = current_len + max_new_tokens,
-            n_kv_heads = layer.attention.n_kv_heads,
-            head_dim = layer.attention.head_dim
-        )
+        config!(layer.attention.cache, seq_length = current_len + max_new_tokens)
     end
 
     input_tokens = device(reshape(initial_tokens, :, 1))  # (seq_len, batch=1)
@@ -57,7 +52,7 @@ function generate(
     end
     # Clear KV caches
     for layer in model.layers
-        clear_kv_cache!(layer.attention.cache)
+        clear!(layer.attention.cache)
     end
     return tokens[1:current_len]
 end
