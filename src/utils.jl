@@ -3,6 +3,17 @@ using Accessors
 encode(tkn::Tokenizer, str; kwargs...) = HuggingFaceTokenizers.encode(tkn, str; kwargs...).ids .+ 1
 decode(tkn::Tokenizer, ids; kwargs...) = HuggingFaceTokenizers.decode(tkn, ids .- 1; kwargs...)
 
+#Trivial Char tokenizers:
+encode(chars::Vector{Char}, str::String) = [findfirst(==(c), chars) for c in str]
+decode(chars::Vector{Char}, enc::Vector{Int}; skip_special_tokens=false) = String([chars[i] for i in enc])
+
+#For training:
+function pad_and_batch(seqs, pad_token)
+    max_len = maximum(length.(seqs))
+    padded = [vcat(s, fill(pad_token, max_len - length(s))) for s in seqs]
+    cat(padded..., dims = 2)
+end
+
 
 #https://www.llama.com/docs/model-cards-and-prompt-formats/llama3_2/
 function llama3_instruct_prompt(tokenizer,system_prompt, user_prompt)
@@ -237,3 +248,41 @@ function structured_choice(choices::Vector{String}, vocab::Vector{String}, end_t
     end
     return choice_sampler
 end
+
+
+function export_model(model, output_path; type_convert = identity)
+    weights = Dict{String,AbstractArray}()
+    weights["model.embed_tokens.weight"] = type_convert(model.tok_embeddings.weight')
+    weights["lm_head.weight"] = type_convert(model.output.weight)
+    weights["model.norm.weight"] = type_convert(model.norm.weight)
+    for (i, layer) in enumerate(model.layers)
+        prefix = "model.layers.$(i-1)"
+        weights["$prefix.self_attn.q_proj.weight"] = type_convert(layer.attention.wq.weight)
+        weights["$prefix.self_attn.k_proj.weight"] = type_convert(layer.attention.wk.weight)
+        weights["$prefix.self_attn.v_proj.weight"] = type_convert(layer.attention.wv.weight)
+        weights["$prefix.self_attn.o_proj.weight"] = type_convert(layer.attention.wo.weight)
+        if layer.attention.wq.bias
+            weights["$prefix.self_attn.q_proj.bias"] = type_convert(layer.attention.wq.bias)
+            weights["$prefix.self_attn.k_proj.bias"] = type_convert(layer.attention.wk.bias)
+            weights["$prefix.self_attn.v_proj.bias"] = type_convert(layer.attention.wv.bias)
+        end
+        weights["$prefix.mlp.gate_proj.weight"] = type_convert(layer.feed_forward.w1.weight)
+        weights["$prefix.mlp.down_proj.weight"] = type_convert(layer.feed_forward.w2.weight)
+        weights["$prefix.mlp.up_proj.weight"] = type_convert(layer.feed_forward.w3.weight)
+        weights["$prefix.input_layernorm.weight"] = type_convert(layer.attention_norm.weight)
+        weights["$prefix.post_attention_layernorm.weight"] = type_convert(layer.ffn_norm.weight)
+    end
+    SafeTensors.serialize(output_path, weights)
+    return nothing
+end
+
+#=
+#Example for how to save a model in safetensors format
+julia> using Random, BFloat16s, SafeTensors
+julia> weights = Dict("W"=>randn(BFloat16, 3, 5), "b"=>rand(BFloat16, 3))
+Dict{String, Array{BFloat16}} with 2 entries:
+  "W" => [0.617188 0.695312 … 0.390625 -2.0; -0.65625 -0.617188 … 0.652344 0.244141; 0.226562 2.70312 … -0.174805 -0.7773…
+  "b" => [0.111816, 0.566406, 0.283203]
+julia> f = tempname();
+julia> SafeTensors.serialize(f, weights)
+=#

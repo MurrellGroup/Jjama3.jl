@@ -40,16 +40,14 @@ struct RoPE{A<:AbstractArray}
     sin::A
 end
 
-Flux.@layer RoPE
+Flux.@layer RoPE trainable=()
 
 Base.getindex(rope::RoPE, i) = RoPE(rope.cos[:,i,:,:], rope.sin[:,i,:,:])
 
 function apply_scaling!(freqs::AbstractVector; scale_factor=8)
-    #Hard-coded - should move these to the main model struct and grab them from the config.
     low_freq_factor = 1
     high_freq_factor = 4
     old_context_len = 8192
-    ###
     low_freq_wavelen = old_context_len / low_freq_factor
     high_freq_wavelen = old_context_len / high_freq_factor
     for (i, freq) in enumerate(freqs)
@@ -68,15 +66,15 @@ end
 
 function RoPE(
     dim::Int, end_pos::Int; 
-    theta::T=10000f0, use_scaled=true, scale_factor=8,
+    theta::T=10000f0, use_scaled=true, scale_factor=8, start_pos=0
 ) where T
     freqs = 1f0 ./ (theta .^ (T.(0:2:dim-1)[1:dim÷2] ./ dim))
     use_scaled && apply_scaling!(freqs; scale_factor)
-    freqs_complex = cis.(T.(0:end_pos-1) * freqs')
+    freqs_complex = cis.(T.(start_pos:end_pos-1) * freqs')
     cos = permutedims(real(freqs_complex), (2, 1))  # (head_dim/2, seq_len)
     sin = permutedims(imag(freqs_complex), (2, 1))
-    cos = reshape(cos, (dim÷2, end_pos, 1, 1))
-    sin = reshape(sin, (dim÷2, end_pos, 1, 1))
+    cos = reshape(cos, (dim÷2, end_pos - start_pos, 1, 1))
+    sin = reshape(sin, (dim÷2, end_pos - start_pos, 1, 1))
     return RoPE(cos, sin)
 end
 
@@ -93,6 +91,15 @@ function (rope::RoPE)(x)
     )
 end
 
+function unrope(rope, x)
+    head_dim = size(x, 1)
+    x1 = x[1:head_dim÷2, :, :, :]
+    x2 = x[head_dim÷2+1:end, :, :, :]
+    return vcat(  
+        x1 .* rope.cos .+ x2 .* rope.sin,
+        x2 .* rope.cos .- x1 .* rope.sin
+    )
+end
 
 struct Attention{Q<:AnyDense,K<:AnyDense,V<:AnyDense,O<:AnyDense,C<:KVCache}
     wq::Q
@@ -195,12 +202,13 @@ end
 Flux.@layer TransformerBlock trainable=(attention,)
 
 
-struct Transformer{E<:Flux.Embedding,B<:Tuple{Vararg{TransformerBlock}},N<:RMSNorm,O<:Dense,R<:RoPE}
+mutable struct Transformer{E<:Flux.Embedding,B<:Tuple{Vararg{TransformerBlock}},N<:RMSNorm,O<:Dense,R<:RoPE}
     tok_embeddings::E
     layers::B
     norm::N
     output::O
     rope::R
+    pos::Int
 end
 
 Flux.@layer Transformer trainable=(layers,)
@@ -218,6 +226,20 @@ function Transformer(
     layers = Tuple(TransformerBlock(dim, n_heads, n_kv_heads, ff_hidden_dim; norm_eps=norm_eps, qkv_bias=qkv_bias) for _ in 1:n_layers)
     norm = RMSNorm(dim, eps=norm_eps)
     output = Dense(dim => vocab_size, bias=false)
+    #This should probably be generated to a sane length, and then extended in the forward pass if needed.
     rope = RoPE(dim ÷ n_heads, max_seq_len * 2; theta=rope_theta, use_scaled=use_scaled_rope, scale_factor=scale_factor)
-    Transformer(tok_embeddings, layers, norm, output, rope)
+    Transformer(tok_embeddings, layers, norm, output, rope, 0)
 end
+
+
+function clear_cache!(model::Transformer)
+    model.pos = 0
+    for layer in model.layers
+        clear!(layer.attention.cache)
+    end
+end
+
+config_cache!(model::Transformer, seq_length) = for layer in model.layers config!(layer.attention.cache, seq_length = seq_length) end
+
+extend_cache!(model::Transformer, seq_length) = for layer in model.layers extend!(layer.attention.cache, seq_length + model.pos) end
+

@@ -19,41 +19,28 @@ function generate(
     sampler::Function=argmax_sampler,
     tokenizer_for_printing = nothing,
     end_token = 128010,
+    clear_cache = true,
+    pos_offset = 0,
     device = identity
 ) where T
     current_len = length(initial_tokens)
     tokens = vcat(initial_tokens, similar(initial_tokens, max_new_tokens))
-
-    for layer in model.layers
-        config!(layer.attention.cache, seq_length = current_len + max_new_tokens)
+    if clear_cache
+        clear_cache!(model)
+        config_cache!(model, current_len + max_new_tokens)
+    else
+        extend_cache!(model, current_len + max_new_tokens)
     end
-
     input_tokens = device(reshape(initial_tokens, :, 1))  # (seq_len, batch=1)
-    logits = model(input_tokens, 0)
-    start_pos = current_len
-
-    # Generate new tokens one at a time
+    logits = model(input_tokens)
     for _ in 1:max_new_tokens
-        # If sequence is empty or we want to process just the last token
-        if start_pos == 0
-            input_tokens = device(reshape([128001], :, 1))  # Use start of text token if empty
-        else
-            input_tokens = device(reshape([tokens[current_len]], :, 1))  # Just the last token
-        end
-        # Get logits for next token
-        logits = model(input_tokens, start_pos)
-        # Sample next token (logits are size vocab × 1 × 1)
+        input_tokens = device(reshape([tokens[current_len]], :, 1))  # Just the last token
+        logits = model(input_tokens)
         next_token = sampler(logits[:, end, 1])
         current_len += 1
         tokens[current_len] = next_token
-        !isnothing(tokenizer_for_printing) && print(decode(tokenizer_for_printing, [next_token]))
+        !isnothing(tokenizer_for_printing) && print(decode(tokenizer_for_printing, [next_token], skip_special_tokens = false))
         next_token == end_token && break
-        start_pos += 1
-    end
-    # Clear KV caches
-    for layer in model.layers
-        clear!(layer.attention.cache)
     end
     return tokens[1:current_len]
 end
-

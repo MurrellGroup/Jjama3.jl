@@ -24,6 +24,7 @@ export RoPE
 export Attention
 export TransformerBlock
 export Transformer
+export unrope
 
 include("model.jl")
 export forward_loss
@@ -49,5 +50,7 @@ export llama3_assistant_prompt
 export smollm2_instruct_prompt
 export smollm2_assistant_prompt
 export structured_choice
+export pad_and_batch
+export export_model
 
 end
