@@ -16,15 +16,16 @@ SafeTensors = "eeda0dda-7046-4914-a807-2495fc7abb89"
 [weakdeps]
 Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 
-[sources]
-HuggingFaceTokenizers = {rev = "main", url = "https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"}
+[sources.HuggingFaceTokenizers]
+rev = "main"
+url = "https://github.com/MurrellGroup/HuggingFaceTokenizers.jl"
 
 [extensions]
 MetalExt = "Metal"
 
 [compat]
 Accessors = "0.1.38"
-Flux = "0.14, 0.15"
+Flux = "0.14, 0.15, 0.16"
 LogitSamplers = "0.1"
 LowRankLayers = "0.1"
 Metal = "1"
@@ -33,9 +34,9 @@ SafeTensors = "1"
 julia = "1.11"
 
 [extras]
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test", "Downloads", "JSON3"]
