@@ -171,3 +171,8 @@ gpu_train_toks = gpu(train_toks)
 
 forward_loss(model, gpu_train_toks[1:end-1,:], gpu_train_toks[2:end,:])
 ```
+
+## See also
+
+- https://lux.csail.mit.edu/stable/tutorials/advanced/4_Qwen3
+- https://github.com/cafaxo/Llama2.jl/tree/master/src
