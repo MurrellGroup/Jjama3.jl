@@ -1,4 +1,4 @@
-# Jjama3 - Hackable Llama3.1 and Llama3.2 (text) in Julia
+# Jjama3 - Hackable Llama3 and friends in Julia
 
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://MurrellGroup.github.io/Jjama3.jl/dev/)
 [![Build Status](https://github.com/MurrellGroup/Jjama3.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/MurrellGroup/Jjama3.jl/actions/workflows/CI.yml?query=branch%3Amain)
@@ -6,15 +6,16 @@
 
 ## Latest
 
-- Now with support for Qwen 2.5 (eg. [base](https://huggingface.co/collections/Qwen/qwen25-66e81a666513e518adb90d9e), [Qwen2.5-Coder](https://huggingface.co/collections/Qwen/qwen25-coder-66eaa22e6f99801bf65b0c2f), and [Qwen2.5-Math](https://huggingface.co/collections/Qwen/qwen25-math-66eaa240a1b7d5ee65f1da3e)).
+- Added support for [Qwen3](https://qwenlm.github.io/blog/qwen3/)
 
 ## Installation
 
 Add JSON3 for loading the configs, and the unregistered HuggingFaceTokenizers dependency for tokenization, in addition to Jjama3:
-```
-] add JSON3
-  add HuggingFaceTokenizers
-  add https://github.com/MurrellGroup/Jjama3.jl
+```julia
+using Pkg
+Pkg.Registry.add(url="https://github.com/MurrellGroup/MurrellGroupRegistry") # for NNop (flash attention)
+Pkg.add(["JSON3", "HuggingFaceTokenizers"])
+Pkg.add(url="https://github.com/MurrellGroup/Jjama3.jl")
 ```
 
 ## Quickstart
@@ -38,13 +39,12 @@ generate(model, prompt,
 
 ## Capability
 
-- Works with Llama3.1 and Llama3.2 models (also including SmolLM2), loaded from Huggingface safetensors.
+- Works with Llama3.1, Llama3.2, and Qwen3 (also including SmolLM2), loaded from Huggingface safetensors.
 - Sampling accelerated with KV caching.
 - RoPE scaling (for exceeding the model's max training-time context length) is implemented, but likely incorrect with KV cache. Be careful if you're using with really long sequences.
 - Imported models are trainable (with Flux), including with low-rank (ie. LoRA) finetuning.
 - Sampling, training, etc compatible with CUDA, where everything is much faster.
 - Metal acceleration for forward inference, forward loss, and sampling. Gradients (with Zygote) fail. Sampling works, but is slower with Metal than with CPU.
-
 
 ## Samplers
 

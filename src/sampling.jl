@@ -1,6 +1,6 @@
-function nexttoken!(tokens, model, sampler, logits, tokenizer_for_printing)
-    tokens[model.pos+1] = sampler(logits[:, end, 1])
-    !isnothing(tokenizer_for_printing) && print(decode(tokenizer_for_printing, [tokens[model.pos+1]], skip_special_tokens = false))
+function nexttoken!(tokens, pos, model, sampler, logits, tokenizer_for_printing)
+    tokens[pos+1:pos+1] .= argmax_sampler(logits[:, end, 1])
+    !isnothing(tokenizer_for_printing) && print(decode(tokenizer_for_printing, tokens[pos+1:pos+1] |> cpu, skip_special_tokens = false))
 end
 
 """
@@ -17,36 +17,22 @@ generate(model, initial_tokens; max_new_tokens=100, sampler=top_pk_sampler(p=0.5
 function generate(
     model::Transformer{T}, 
     initial_tokens::AbstractArray{<:Integer};
+    io=stdout,
     max_new_tokens=100,
-    sampler::Function=argmax_sampler,
+    sampler::Function=argmax_sampler, #top_pk_sampler(p=0.5f0, k=5),
     tokenizer_for_printing = nothing,
     end_token = 128010,
-    clear_cache = true,
-    pos_offset = 0,
-    device = identity,
-    sdpa_func = sdpa
+    caches=kv_cache(model, 1024, 1),
+    kws...
 ) where T
-    tokens = vcat(initial_tokens, similar(initial_tokens, max_new_tokens))
-    if clear_cache
-        clear_cache!(model)
-        config_cache!(model, length(initial_tokens) + max_new_tokens)
-    else
-        extend_cache!(model, length(initial_tokens) + max_new_tokens)
+    n, b = size(initial_tokens, 1), size(initial_tokens, 2)
+    tokens = reshape(initial_tokens, n, b)
+    n > 1 && model(tokens[1:n-1, :]; caches, mask=causal_mask, kws...)
+    for i in 1:max_new_tokens
+        logits = model(tokens[end:end, 1]; caches, kws...)
+        tokens = [tokens; sampler(logits[:, end])]
+        !isnothing(tokenizer_for_printing) && print(io, decode(tokenizer_for_printing, tokens[end:end] |> cpu, skip_special_tokens = false))
+        sum(tokens[end:end]) == end_token && break
     end
-    input_tokens = device(reshape(initial_tokens, :, 1))  # (seq_len, batch=1)
-    logits = model(input_tokens, sdpa_func = sdpa_func)
-    if max_new_tokens > 0
-        nexttoken!(tokens, model, sampler, logits, tokenizer_for_printing)
-        tokens[model.pos+1] == end_token && return tokens[1:model.pos+1]
-    else
-        return tokens
-    end
-    for _ in 1:max_new_tokens-1
-        input_tokens = device(reshape([tokens[model.pos+1]], :, 1))  # Just the last token
-        logits = model(input_tokens, sdpa_func = sdpa_func)
-        nexttoken!(tokens, model, sampler, logits, tokenizer_for_printing)
-        tokens[model.pos+1] == end_token && break
-    end
-    return tokens[1:model.pos+1]
+    return tokens
 end
-

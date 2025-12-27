@@ -1,48 +1,48 @@
-#Trying out some tricks for attention.
+include("NNop.jl")
 
-#Figure out where to thunk...
-
-#Will use Zygote - for testing grad correctness:
-function sdpa_norrule(xq::AbstractArray{T}, xk::AbstractArray{T}, xv::AbstractArray{T}, mask::AbstractArray{T}, head_dim::Int) where T
-    A = softmax(batched_mul(batched_transpose(xk), xq) / sqrt(T(head_dim)) .+ mask; dims=1)
-    return batched_mul(xv, A)
-end
-
-function ChainRulesCore.rrule(::typeof(sdpa),
-                              xq::AbstractArray{T}, #(D, LQ, HB)
-                              xk::AbstractArray{T}, #(D, LKV, HB)
-                              xv::AbstractArray{T}, #(D, LKV, HB)
-                              mask::AbstractArray{T}, #(LKV, LQ)
-                              head_dim::Int
-                              ) where {T}
-    α = sqrt(T(head_dim))
-    A = softmax(((batched_mul(batched_transpose(xk), xq) ./ α) .+ mask); dims=1) #(LKV, LQ, HB) "head-batch"
-    y = batched_mul(xv, A) #(D, LQ, HB)
-    function sdpa_pullback(ȳ)
-        xv̄ = batched_mul(ȳ, batched_transpose(A)) #(D, LKV, HB)
-        Ā  = batched_mul(batched_transpose(xv), ȳ) #(LKV, LQ, HB)
-        dM = (A .* (Ā .- (sum(A .* Ā, dims=1)))) ./ α #(LKV, LQ, HB)
-        xq̄ = batched_mul(xk, dM) #(D, LQ, HB)
-        xk̄ = batched_mul(xq, batched_transpose(dM)) #(D, LKV, HB)
-        return NoTangent(), xq̄, xk̄, xv̄, NoTangent(), NoTangent()
+function create_causal_mask(h::AbstractArray{T}; precached_size = 0) where T<:AbstractFloat
+    @ignore_derivatives begin
+        dim, seqlen = size(h)
+        mask = similar(h, seqlen, seqlen)
+        mask .= T(-Inf)
+        mask = tril(mask, -1) #This is swapped because we're using the slightly more efficient dim setup
+        if precached_size > 0
+            pad = similar(h, precached_size, seqlen)
+            pad .= T(0.0)
+            mask = vcat(pad, mask)
+        end
+        return mask
     end
-    return y, sdpa_pullback
+end
+
+# Scaled dot product attention
+function sdpa(q::AbstractArray{T}, k::AbstractArray{T}, v::AbstractArray{T}; mask=false) where T
+    input_size = size(q)
+    q, k, v = rearrange.((q, k, v), einops"d l ... -> d l (...)")
+    d = size(q, 1)
+    mask = mask === causal_mask ? create_causal_mask(q) : mask
+    A = softmax(batched_mul(batched_transpose(k), q) / √T(d) .+ mask, dims=1)
+    x = batched_mul(v, A)
+    return reshape(x, input_size)
 end
 
 
-function keychunked_sdpa(xq::AbstractArray{T,3},
-                      xk::AbstractArray{T,3},
-                      xv::AbstractArray{T,3},
-                      mask::AbstractArray{T},
-                      head_dim::Int;
+function keychunked_sdpa(xq::AbstractArray{T,4},
+                      xk::AbstractArray{T,4},
+                      xv::AbstractArray{T,4};
+                      mask=causal_mask,
                       k_chunk_size::Int=128
                      ) where {T<:Real}
+    input_size = size(xq)
+    head_dim = size(xq, 1)
+    xq, xk, xv = rearrange.((xq, xk, xv), einops"d l ... -> d l (...)")
+    mask = mask === causal_mask ? create_causal_mask(xq) : mask
 
     k_len  = size(xk,2)
     q_len  = size(xq,2)
     nbatch = size(xq,3)
 
-    scale = one(T) / sqrt(T(head_dim))
+    scale = one(T) / √T(head_dim)
     
     partial_max  = fill!(similar(xq, 1, q_len, nbatch), -Inf)
     partial_expw = fill!(similar(xq, 1, q_len, nbatch), T(0))
@@ -93,19 +93,23 @@ function keychunked_sdpa(xq::AbstractArray{T,3},
     end
 
     y = partial_vals ./ partial_expw
-    return y
+    return reshape(y, input_size)
 end
 
-
+#=
 #Todo: use this to ignore parts of the -Inf mask triangle, since we're processing over chunks of queries.
 function querychunked_sdpa(
-    xq::AbstractArray{T,3},
-    xk::AbstractArray{T,3},
-    xv::AbstractArray{T,3},
-    mask::AbstractArray{T},
-    head_dim::Int;
+    xq::AbstractArray{T,4},
+    xk::AbstractArray{T,4},
+    xv::AbstractArray{T,4};
+    mask=causal_mask,
     q_chunk_size::Int=128
 ) where {T<:Real}
+    input_size = size(xq)
+    head_dim = size(xq, 1)
+    xq, xk, xv = rearrange.((xq, xk, xv), einops"d l ... -> d l (...)")
+    mask = mask === causal_mask ? create_causal_mask(xq) : mask
+    # FIXME: this method is trying to view the mask which fails for `mask::Bool`
     q_len   = size(xq, 2)
     kv_len  = size(xv, 2)
     nbatch  = size(xq, 3)
@@ -124,8 +128,39 @@ function querychunked_sdpa(
         batched_mul!(view(y,:,qinds,:),xv, view(Achunk,:,1:q_batch,:)) #(D, LQ, HB)
         qstart += q_batch
     end
-    return y
+    return reshape(y, input_size)
 end
+=#
+
+#=
+
+#Will use Zygote - for testing grad correctness:
+function sdpa_norrule(xq::AbstractArray{T}, xk::AbstractArray{T}, xv::AbstractArray{T}, mask::AbstractArray{T}, head_dim::Int) where T
+    A = softmax(batched_mul(batched_transpose(xk), xq) / sqrt(T(head_dim)) .+ mask; dims=1)
+    return batched_mul(xv, A)
+end
+
+function ChainRulesCore.rrule(::typeof(sdpa),
+                              xq::AbstractArray{T}, #(D, LQ, HB)
+                              xk::AbstractArray{T}, #(D, LKV, HB)
+                              xv::AbstractArray{T}, #(D, LKV, HB)
+                              mask::AbstractArray{T}, #(LKV, LQ)
+                              head_dim::Int
+                              ) where {T}
+    α = sqrt(T(head_dim))
+    A = softmax(((batched_mul(batched_transpose(xk), xq) ./ α) .+ mask); dims=1) #(LKV, LQ, HB) "head-batch"
+    y = batched_mul(xv, A) #(D, LQ, HB)
+    function sdpa_pullback(ȳ)
+        xv̄ = batched_mul(ȳ, batched_transpose(A)) #(D, LKV, HB)
+        Ā  = batched_mul(batched_transpose(xv), ȳ) #(LKV, LQ, HB)
+        dM = (A .* (Ā .- (sum(A .* Ā, dims=1)))) ./ α #(LKV, LQ, HB)
+        xq̄ = batched_mul(xk, dM) #(D, LQ, HB)
+        xk̄ = batched_mul(xq, batched_transpose(dM)) #(D, LKV, HB)
+        return NoTangent(), xq̄, xk̄, xv̄, NoTangent(), NoTangent()
+    end
+    return y, sdpa_pullback
+end
+
 
 function ChainRulesCore.rrule(::typeof(querychunked_sdpa),
                               xq::AbstractArray{T}, #(D, LQ, HB)
@@ -171,87 +206,4 @@ function ChainRulesCore.rrule(::typeof(querychunked_sdpa),
     end
     return y, sdpa_pullback
 end
-
-#=
-#Testing forward passes
-begin
-    L1 = 872 #Query
-    L2 = 267 #Key/Value
-    D = 32
-    HB = 80
-    xq, xk, xv, mask = randn(Float32, D, L1, HB), randn(Float32, D, L2, HB), randn(Float32, D, L2, HB), zeros(Float32, L2, L1);
-    f(xq, xk, xv, mask, hd) = (Jjama3.sdpa(xq, xk, xv, mask, hd));
-    fqc(xq, xk, xv, mask, hd) = (Jjama3.querychunked_sdpa(xq, xk, xv, mask, hd, q_chunk_size = 64));
-    fkc(xq, xk, xv, mask, hd) = (Jjama3.keychunked_sdpa(xq, xk, xv, mask, hd, k_chunk_size = 64));
-    
-    res = f(xq, xk, xv, mask, D);
-    qcres = fqc(xq, xk, xv, mask, D);
-    kcres = fkc(xq, xk, xv, mask, D);
-
-    @assert isapprox(res, qcres)
-    @assert isapprox(res, kcres)
-
-    @show size(res)
-    @show size(kcres)
-
-
-    #@btime f($xq, $xk, $xv, $mask, $D)
-    #@btime fqc($xq, $xk, $xv, $mask, $D)
-    #@btime fkc($xq, $xk, $xv, $mask, $D)
-end;
 =#
-
-
-
-#=
-#Testing grads
-begin
-L1 = 1000
-L2 = 1200
-D = 32
-HB = 80
-xq, xk, xv, mask = randn(Float32, D, L1, HB), randn(Float32, D, L2, HB), randn(Float32, D, L2, HB), zeros(Float32, L2, L1);
-fnr(xq, xk, xv, mask, hd) = sum(Zygote.checkpointed(Jjama3.sdpa_norrule,xq, xk, xv, mask, hd));
-f(xq, xk, xv, mask, hd) = sum(Zygote.checkpointed(Jjama3.sdpa,xq, xk, xv, mask, hd));
-flm(xq, xk, xv, mask, hd) = sum(Jjama3.querychunked_sdpa(xq, xk, xv, mask, hd, q_chunk_size = 64));
-@time res = withgradient(f, xq, xk, xv, mask, D);
-@time nrres = withgradient(fnr, xq, xk, xv, mask, D);
-@time lmres = withgradient(flm, xq, xk, xv, mask, D);
-
-@assert isapprox(res[1], nrres[1])
-@assert isapprox(res[2][1], nrres[2][1])
-@assert isapprox(res[2][2], nrres[2][2])
-@assert isapprox(res[2][3], nrres[2][3])
-@assert isapprox(res[1], lmres[1])
-@assert isapprox(res[2][1], lmres[2][1])
-@assert isapprox(res[2][2], lmres[2][2])
-@assert isapprox(res[2][3], lmres[2][3])
-
-GC.gc()
-println("normal+rrule chechpointed:")
-@time res = withgradient(f, xq, xk, xv, mask, D);
-@time res = withgradient(f, xq, xk, xv, mask, D);
-
-GC.gc()
-println("normal+Zygote chechpointed:")
-@time nrres = withgradient(fnr, xq, xk, xv, mask, D);
-@time nrres = withgradient(fnr, xq, xk, xv, mask, D);
-
-GC.gc()
-println("chunked:")
-@time lmres = withgradient(flm, xq, xk, xv, mask, D);
-@time lmres = withgradient(flm, xq, xk, xv, mask, D);
-
-
-println("btimed:")
-GC.gc()
-@btime res = withgradient(f, xq, xk, xv, mask, D);
-GC.gc()
-@btime nrres = withgradient(fnr, xq, xk, xv, mask, D);
-GC.gc()
-@btime lmres = withgradient(flm, xq, xk, xv, mask, D);
-
-true
-end
-=#
-

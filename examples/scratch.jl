@@ -1,5 +1,9 @@
-#Pkg.add(["Flux", "JSON3", "UnicodePlots", "StatsBase"])
-using Jjama3, Flux, StatsBase, UnicodePlots
+using Jjama3
+
+Pkg.activate(temp=true)
+Pkg.add(["Flux", "JSON3", "UnicodePlots", "StatsBase"])
+
+using Flux, StatsBase, UnicodePlots
 
 #Init a tiny model
 model = Transformer(
@@ -13,9 +17,9 @@ model = Transformer(
 )
 
 #Make everything except the RoPE trainable
-Jjama3.Flux.@layer Jjama3.Transformer trainable=(tok_embeddings, layers, norm, output)
-Jjama3.Flux.@layer Jjama3.Attention trainable=(wq, wk, wv, wo)
-Jjama3.Flux.@layer Jjama3.TransformerBlock trainable=(attention, feed_forward, attention_norm, ffn_norm)
+Flux.@layer Jjama3.Transformer trainable=(embeddings, layers, norm, output)
+Flux.@layer Jjama3.Attention trainable=(wq, wk, wv, wo)
+Flux.@layer Jjama3.TransformerBlock trainable=(attention, feed_forward, attention_norm, ffn_norm)
 
 #Set up trivial tokenizer
 AAs = collect(">ACDEFGHIKLMNPQRSTVWY.")

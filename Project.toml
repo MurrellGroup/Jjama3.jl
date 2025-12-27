@@ -5,11 +5,15 @@ version = "2.0.0-DEV"
 
 [deps]
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+ConcreteStructs = "2569d6c7-a4a2-43d3-a901-331e8e4be471"
+Einops = "e3ce28c8-8bfb-4704-8add-e3e7f14b55c9"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LogitSamplers = "1b30fcfc-0ee9-4be2-9cfe-b2289b43e041"
 LowRankLayers = "b66182ab-a85c-43b0-99bd-d85cc47c5e50"
 NNlib = "872c559c-99b0-510c-b3b7-b6c96a88d5cd"
+NNop = "eeb6ee5c-f953-4f60-8482-00c4fb7bc198"
 SafeTensors = "eeda0dda-7046-4914-a807-2495fc7abb89"
 
 [weakdeps]
@@ -22,19 +26,15 @@ MetalExt = "Metal"
 
 [compat]
 ChainRulesCore = "1.25.0"
+ConcreteStructs = "0.2.3"
+Einops = "0.1.6"
 Flux = "0.14, 0.15, 0.16"
+GPUArraysCore = "0.2.0"
 HuggingFaceTokenizers = "0.1"
 LogitSamplers = "0.1.0"
 LowRankLayers = "0.1.2"
 Metal = "1"
 NNlib = "0.9"
+NNop = "0.1.0"
 SafeTensors = "1"
 julia = "1.10"
-
-[extras]
-Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
-JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-
-[targets]
-test = ["Test", "Downloads", "JSON3"]

@@ -1,5 +1,7 @@
 module Jjama3
 
+using ConcreteStructs
+using Einops
 using Flux
 using SafeTensors
 using LinearAlgebra
@@ -8,8 +10,7 @@ using LogitSamplers
 using LowRankLayers
 using ChainRulesCore
 
-include("cache.jl")
-export KVCache
+const causal_mask = Val(:causal_mask)
 
 include("layers.jl")
 export FeedForward
@@ -23,7 +24,14 @@ export rerope_cache!
 export scrape_cache
 export append_cache!
 
-include("sdpa.jl")
+include("cache.jl")
+export kv_cache
+export no_kv_cache
+export position!
+
+include("sdpa/sdpa.jl")
+export sdpa
+export flash_attention
 
 include("model.jl")
 export forward_loss
@@ -40,14 +48,10 @@ export generate
 include("utils.jl")
 export encode
 export decode
-export load_llama321B_from_safetensors
-export load_llama3_from_safetensors
-export llama3_instruct_prompt
-export llama3_assistant_prompt
-export smollm2_instruct_prompt
-export smollm2_assistant_prompt
-export structured_choice
 export pad_and_batch
+export structured_choice
+
+include("models/models.jl")
 export export_model
 
 end
